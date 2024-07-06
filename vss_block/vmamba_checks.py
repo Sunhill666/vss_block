@@ -80,23 +80,34 @@ class CHECKS:
                 downsample = kwargs.get("downsample", None)
                 blocks = layer.blocks
 
-                if True:  # is this really applied? Yes, but been overriden later in VSSM!
+                if (
+                    True
+                ):  # is this really applied? Yes, but been overriden later in VSSM!
+
                     def _init_weights(module: nn.Module):
                         for name, p in module.named_parameters():
                             if name in ["out_proj.weight"]:
                                 # fake init, just to keep the seed ....
                                 p = p.clone().detach_()
                                 nn.init.kaiming_uniform_(p, a=math.sqrt(5))
+
                     blks = nn.Sequential(*copy.deepcopy(blocks))
                     blks.apply(_init_weights)
 
-                downsample = PatchMerging2D(
-                    dim, 2*dim, norm_layer=norm_layer) if downsample is None else nn.Identity()
+                downsample = (
+                    PatchMerging2D(dim, 2 * dim, norm_layer=norm_layer)
+                    if downsample is None
+                    else nn.Identity()
+                )
 
-                return nn.Sequential(OrderedDict(
-                    blocks=nn.Sequential(*blocks,),
-                    downsample=downsample,
-                ))
+                return nn.Sequential(
+                    OrderedDict(
+                        blocks=nn.Sequential(
+                            *blocks,
+                        ),
+                        downsample=downsample,
+                    )
+                )
 
             def forward_backbone(self, x):
                 x = self.patch_embed(x)
@@ -110,19 +121,32 @@ class CHECKS:
                     x = layer(x)
                 x = self.classifier.norm(x)
                 # here: whether has contiguous would differ
-                x = self.classifier.avgpool(
-                    x.permute(0, 3, 1, 2).contiguous()).flatten(1)
+                x = self.classifier.avgpool(x.permute(0, 3, 1, 2).contiguous()).flatten(
+                    1
+                )
                 x = self.classifier.head(x)
                 return x
 
         # only has initial difference
-        VSSM1 = partial(VSSM, downsample_version="v1", patchembed_version="v1",
-                        mlp_ratio=0.0, ssm_ratio=2.0, forward_type=forward_type)
+        VSSM1 = partial(
+            VSSM,
+            downsample_version="v1",
+            patchembed_version="v1",
+            mlp_ratio=0.0,
+            ssm_ratio=2.0,
+            forward_type=forward_type,
+        )
         VSSM.forward_backbone = VSSM_.forward_backbone
         VSSM.forward1 = VSSM_.forward1
         # expected to be all the same
-        VSSM1 = partial(VSSM_, downsample_version="none", patchembed_version="v1",
-                        mlp_ratio=0.0, ssm_ratio=2.0, forward_type=forward_type)
+        VSSM1 = partial(
+            VSSM_,
+            downsample_version="none",
+            patchembed_version="v1",
+            mlp_ratio=0.0,
+            ssm_ratio=2.0,
+            forward_type=forward_type,
+        )
 
         # test 1 True =================================
         torch.manual_seed(time.time())
@@ -179,10 +203,22 @@ class CHECKS:
 
     def check_vssm1_ssoflex_equals_mambassm():
         # only has initial difference
-        VSSM0 = partial(VSSM, downsample_version="v3", patchembed_version="v2",
-                        mlp_ratio=4.0, ssm_ratio=2.0, forward_type="v2")
-        VSSM1 = partial(VSSM, downsample_version="v3", patchembed_version="v2",
-                        mlp_ratio=4.0, ssm_ratio=2.0, forward_type="v01")
+        VSSM0 = partial(
+            VSSM,
+            downsample_version="v3",
+            patchembed_version="v2",
+            mlp_ratio=4.0,
+            ssm_ratio=2.0,
+            forward_type="v2",
+        )
+        VSSM1 = partial(
+            VSSM,
+            downsample_version="v3",
+            patchembed_version="v2",
+            mlp_ratio=4.0,
+            ssm_ratio=2.0,
+            forward_type="v01",
+        )
 
         # test 1 True =================================
         torch.manual_seed(time.time())
@@ -230,23 +266,30 @@ class CHECKS:
         B, C, H, W = 256, 192, 56, 57
         dtype = torch.float16
         dtype = torch.float32
-        x = torch.randn((B, C, H, W), dtype=dtype,
-                        device=torch.device("cuda")).requires_grad_(True)
-        y = torch.randn((B, 4, C, H, W), dtype=dtype,
-                        device=torch.device("cuda")).requires_grad_(True)
+        x = torch.randn(
+            (B, C, H, W), dtype=dtype, device=torch.device("cuda")
+        ).requires_grad_(True)
+        y = torch.randn(
+            (B, 4, C, H, W), dtype=dtype, device=torch.device("cuda")
+        ).requires_grad_(True)
         x1 = x.clone().detach().requires_grad_(True)
         y1 = y.clone().detach().requires_grad_(True)
 
         def cross_scan(x: torch.Tensor):
             B, C, H, W = x.shape
             L = H * W
-            xs = torch.stack([
-                x.view(B, C, L),
-                torch.transpose(x, dim0=2, dim1=3).contiguous().view(B, C, L),
-                torch.flip(x.contiguous().view(B, C, L), dims=[-1]),
-                torch.flip(torch.transpose(
-                    x, dim0=2, dim1=3).contiguous().view(B, C, L), dims=[-1]),
-            ], dim=1).view(B, 4, C, L)
+            xs = torch.stack(
+                [
+                    x.view(B, C, L),
+                    torch.transpose(x, dim0=2, dim1=3).contiguous().view(B, C, L),
+                    torch.flip(x.contiguous().view(B, C, L), dims=[-1]),
+                    torch.flip(
+                        torch.transpose(x, dim0=2, dim1=3).contiguous().view(B, C, L),
+                        dims=[-1],
+                    ),
+                ],
+                dim=1,
+            ).view(B, 4, C, L)
             return xs
 
         def cross_merge(out_y: torch.Tensor):
@@ -254,24 +297,36 @@ class CHECKS:
             L = H * W
             out_y = out_y.view(B, K, D, L)
             inv_y = torch.flip(out_y[:, 2:4], dims=[-1]).view(B, 2, -1, L)
-            wh_y = torch.transpose(out_y[:, 1].view(
-                B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
-            invwh_y = torch.transpose(inv_y[:, 1].view(
-                B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
+            wh_y = (
+                torch.transpose(out_y[:, 1].view(B, -1, W, H), dim0=2, dim1=3)
+                .contiguous()
+                .view(B, -1, L)
+            )
+            invwh_y = (
+                torch.transpose(inv_y[:, 1].view(B, -1, W, H), dim0=2, dim1=3)
+                .contiguous()
+                .view(B, -1, L)
+            )
             y = out_y[:, 0] + inv_y[:, 0] + wh_y + invwh_y
             return y
 
         def cross_scan_1b1(x: torch.Tensor):
             B, K, C, H, W = x.shape
             L = H * W
-            xs = torch.stack([
-                x[:, 0].view(B, C, L),
-                torch.transpose(x[:, 1], dim0=2,
-                                dim1=3).contiguous().view(B, C, L),
-                torch.flip(x[:, 2].contiguous().view(B, C, L), dims=[-1]),
-                torch.flip(torch.transpose(
-                    x[:, 3], dim0=2, dim1=3).contiguous().view(B, C, L), dims=[-1]),
-            ], dim=1).view(B, 4, C, L)
+            xs = torch.stack(
+                [
+                    x[:, 0].view(B, C, L),
+                    torch.transpose(x[:, 1], dim0=2, dim1=3).contiguous().view(B, C, L),
+                    torch.flip(x[:, 2].contiguous().view(B, C, L), dims=[-1]),
+                    torch.flip(
+                        torch.transpose(x[:, 3], dim0=2, dim1=3)
+                        .contiguous()
+                        .view(B, C, L),
+                        dims=[-1],
+                    ),
+                ],
+                dim=1,
+            ).view(B, 4, C, L)
             return xs
 
         def unidi_scan(x):
@@ -303,22 +358,20 @@ class CHECKS:
             res4 = triton.testing.do_bench(lambda: CrossMerge.apply(y))
             res5 = triton.testing.do_bench(lambda: CrossMergeTriton.apply(y))
             print(res0, res1, res2, res3, res4, res5)
-            res0 = triton.testing.do_bench(
-                lambda: cross_scan(x).sum().backward())
-            res1 = triton.testing.do_bench(
-                lambda: CrossScan.apply(x).sum().backward())
+            res0 = triton.testing.do_bench(lambda: cross_scan(x).sum().backward())
+            res1 = triton.testing.do_bench(lambda: CrossScan.apply(x).sum().backward())
             res2 = triton.testing.do_bench(
-                lambda: CrossScanTriton.apply(x).sum().backward())
-            res3 = triton.testing.do_bench(
-                lambda: cross_merge(y).sum().backward())
-            res4 = triton.testing.do_bench(
-                lambda: CrossMerge.apply(y).sum().backward())
+                lambda: CrossScanTriton.apply(x).sum().backward()
+            )
+            res3 = triton.testing.do_bench(lambda: cross_merge(y).sum().backward())
+            res4 = triton.testing.do_bench(lambda: CrossMerge.apply(y).sum().backward())
             res5 = triton.testing.do_bench(
-                lambda: CrossMergeTriton.apply(y).sum().backward())
+                lambda: CrossMergeTriton.apply(y).sum().backward()
+            )
             print(res0, res1, res2, res3, res4, res5)
 
         print("test cross scan")
-        for (cs0, cm0, cs1, cm1) in [
+        for cs0, cm0, cs1, cm1 in [
             (cross_scan, cross_merge, CrossScanTriton, CrossMergeTriton),
             (unidi_scan, unidi_merge, getCSM(1)[0], getCSM(1)[1]),
             (bidi_scan, bidi_merge, getCSM(2)[0], getCSM(2)[1]),
@@ -365,8 +418,11 @@ class CHECKS:
         w1 = w.clone().detach().requires_grad_(True)
 
         y1 = torch.einsum("bkrl,kdr->bkdl", x, w).contiguous().view(B, -1, L)
-        y2 = F.conv1d(x1.view(B, -1, L), w1.view(K * D, R, 1),
-                      None, groups=K).contiguous().view(B, -1, L)
+        y2 = (
+            F.conv1d(x1.view(B, -1, L), w1.view(K * D, R, 1), None, groups=K)
+            .contiguous()
+            .view(B, -1, L)
+        )
         print((y1 - y2).abs().max())
         y1.backward(o)
         y2.backward(o)
@@ -406,23 +462,37 @@ class CHECKS:
 
         inp = torch.randn((16, 128, 128, 16)).cuda().requires_grad_()
         inp2 = inp.detach().cuda().view(16, -1, 16).requires_grad_()
-        def fn(): return vb(inp)
+
+        def fn():
+            return vb(inp)
+
         ms = triton.testing.do_bench(fn, warmup=100)
         print(ms)
-        def fn(): return trans(inp2)
+
+        def fn():
+            return trans(inp2)
+
         ms = triton.testing.do_bench(fn, warmup=100)
         print(ms)
-        def fn(): return vb(inp).sum().backward()
+
+        def fn():
+            return vb(inp).sum().backward()
+
         ms = triton.testing.do_bench(fn, warmup=100)
         print(ms)
-        def fn(): return trans(inp2).sum().backward()
+
+        def fn():
+            return trans(inp2).sum().backward()
+
         ms = triton.testing.do_bench(fn, warmup=100)
         print(ms)
         import time
+
         time.sleep(10000)
 
     def check_ln2d():
         import triton
+
         B, C, H, W = 128, 8192, 7, 7
         inp = torch.randn((B, C, H, W)).cuda().requires_grad_()
         inp2 = inp.detach().permute(0, 2, 3, 1).clone().requires_grad_()
@@ -447,16 +517,17 @@ class CHECKS:
 
     def check_linear_2d():
         import triton
+
         inp = torch.randn((64, 192, 56, 57)).cuda().requires_grad_()
         inp2 = inp.detach().permute(0, 2, 3, 1).clone().requires_grad_()
 
         torch.manual_seed(0)
         torch.cuda.manual_seed(0)
-        n1 = Mlp(192, 4*192, 384, channels_first=True).cuda()
+        n1 = Mlp(192, 4 * 192, 384, channels_first=True).cuda()
         catch_random1 = torch.randn((1,))
         torch.manual_seed(0)
         torch.cuda.manual_seed(0)
-        n2 = Mlp(192, 4*192, 384, channels_first=False).cuda()
+        n2 = Mlp(192, 4 * 192, 384, channels_first=False).cuda()
         catch_random2 = torch.randn((1,))
         print(catch_random1, catch_random2)
         with torch.cuda.amp.autocast():
@@ -476,16 +547,17 @@ class CHECKS:
 
     def check_gmlp():
         import triton
+
         inp = torch.randn((64, 192, 56, 57)).cuda().requires_grad_()
         inp2 = inp.detach().permute(0, 2, 3, 1).clone().requires_grad_()
 
         torch.manual_seed(0)
         torch.cuda.manual_seed(0)
-        n1 = Mlp(192, 4*192, 384, channels_first=True).cuda()
+        n1 = Mlp(192, 4 * 192, 384, channels_first=True).cuda()
         catch_random1 = torch.randn((1,))
         torch.manual_seed(0)
         torch.cuda.manual_seed(0)
-        n2 = gMlp(192, 2*192, 384, channels_first=False).cuda()
+        n2 = gMlp(192, 2 * 192, 384, channels_first=False).cuda()
         catch_random2 = torch.randn((1,))
         print(catch_random1, catch_random2)
         with torch.cuda.amp.autocast():
@@ -505,6 +577,7 @@ class CHECKS:
 
     def check_channel_first():
         import triton
+
         inp = torch.randn((64, 3, 224, 224)).cuda().half().requires_grad_()
         inp2 = inp.detach().clone().requires_grad_()
 
@@ -536,8 +609,9 @@ class CHECKS:
         torch.cuda.manual_seed(0)
 
         def trace_handler(prof: torch.profiler.profile):
-            print(prof.key_averages().table(
-                sort_by="self_cuda_time_total", row_limit=-1))
+            print(
+                prof.key_averages().table(sort_by="self_cuda_time_total", row_limit=-1)
+            )
             # print(prof.export_chrome_trace("./tracev1.json"))
 
         with torch.cuda.amp.autocast():
@@ -549,7 +623,6 @@ class CHECKS:
                     torch.profiler.ProfilerActivity.CPU,
                     torch.profiler.ProfilerActivity.CUDA,
                 ],
-
                 # In this example with wait=1, warmup=1, active=2, repeat=1,
                 # profiler will skip the first step/iteration,
                 # start warming up on the second, record
@@ -557,13 +630,8 @@ class CHECKS:
                 # after which the trace will become available
                 # and on_trace_ready (when set) is called;
                 # the cycle repeats starting with the next step
-
-                schedule=torch.profiler.schedule(
-                    wait=1,
-                    warmup=1,
-                    active=2,
-                    repeat=1),
-                on_trace_ready=trace_handler
+                schedule=torch.profiler.schedule(wait=1, warmup=1, active=2, repeat=1),
+                on_trace_ready=trace_handler,
                 # on_trace_ready=torch.profiler.tensorboard_trace_handler('./log')
                 # used when outputting for tensorboard
             ) as prof:
